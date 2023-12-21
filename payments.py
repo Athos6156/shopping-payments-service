@@ -4,7 +4,6 @@ import traceback
 
 import mysql.connector
 from flask import Flask, request, jsonify
-from flask import Flask
 from db import DBUser
 import json
 import boto3
