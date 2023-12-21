@@ -1,15 +1,20 @@
 import urllib.request
 import os
 import traceback
+from random import random
+from time import sleep
 
 import mysql.connector
 from flask import Flask, request, jsonify
 from db import DBUser
 import json
 import boto3
+import random
 
 app = Flask("Payments")
 dbuser = DBUser()
+from flask_cors import CORS
+cors = CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 @app.route('/')
 def hello_world():
@@ -18,6 +23,7 @@ def hello_world():
 
 @app.route('/api/payment/pay', methods=['POST'])
 def accept_payment():
+	sleep(random.randint(0,5))
 	data = request.get_json()
 	api_key = '27bd20c1-30b0-48eb-8b4f-1ccf51134d57'
 
@@ -27,46 +33,48 @@ def accept_payment():
 	status=1
 
 	url = f'https://api.apistacks.com/v1/validatecard?api_key={api_key}&cardnumber={card_num}'
+	contents={}
+	contents['status'] = 'ok'
 	try:
 		contents = json.loads(urllib.request.urlopen(url).read())
-		if contents['status'] == 'ok':
-			payment_query = ("INSERT INTO payments (order_id, status, amount, payment_method)"
-								 " VALUES (%s, %s, %s, %s)")
-			values = (
-				order_id,
-				status,
-				amount,
-				card_num )
-			connection = dbuser.connect_to_db()
-			cursor = connection.cursor()
+	except:
+		print("error")
+	if contents['status'] == 'ok':
+		payment_query = ("INSERT INTO payments (order_id, status, amount, payment_method)"
+							 " VALUES (%s, %s, %s, %s)")
+		values = (
+			order_id,
+			status,
+			amount,
+			card_num )
+		connection = dbuser.connect_to_db()
+		cursor = connection.cursor()
+		try:
+			cursor.execute(payment_query, values)
+			connection.commit()
+			cursor.close()
+			connection.close()
+
+			client = boto3.client("sns", aws_access_key_id=os.environ.get('aws_key'), aws_secret_access_key=os.environ.get('secret_key'),region_name='us-east-1')
+			#TODO - move this to the aggregator service, it can fetch the user info to form the email
+			message = {'recipient':'kg2982@columbia.edu','subject':'Athos Payment Notification','body':f'Payment for Amount{amount} processed successfully' }
 			try:
-				cursor.execute(payment_query, values)
-				connection.commit()
+				client.publish(	TargetArn='arn:aws:sns:us-east-1:114811598002:karthikguda-email-deliv',	Message=json.dumps(message))
+			except Exception as e:
+				print(e)
+
+			return jsonify({'message': 'paid successfully'})
+		except mysql.connector.errors.IntegrityError as e:
 				cursor.close()
 				connection.close()
-
-				client = boto3.client("sns", aws_access_key_id=os.environ.get('aws_key'), aws_secret_access_key=os.environ.get('secret_key'),region_name='us-east-1')
-				#TODO - move this to the aggregator service, it can fetch the user info to form the email
-				message = {'recipient':'kg2982@columbia.edu','subject':'Athos Payment Notification','body':f'Payment for Amount{amount} processed successfully' }
-				try:
-					client.publish(	TargetArn='arn:aws:sns:us-east-1:114811598002:karthikguda-email-deliv',	Message=json.dumps(message))
-				except Exception as e:
-					print(e)
-
-				return jsonify({'message': 'paid successfully'})
-			except mysql.connector.errors.IntegrityError as e:
-					cursor.close()
-					connection.close()
-					return jsonify({'message': 'Error processing payment. Invalid card'})
-		else:
-			return jsonify({'message': 'Error processing payment. Invalid card'})
-	except:
-		traceback.print_exc()
-		return jsonify({'message': 'Unable to verify payment.'})
+				return jsonify({'message': 'Error processing payment. Invalid card'})
+	else:
+		return jsonify({'message': 'Error processing payment. Invalid card'})
 
 
 @app.route('/api/payment/refund', methods=['PUT'])
 def refund_payment():
+	sleep(random.randint(0,5))
 	data = request.get_json()
 	order_id = data['order_id']
 	connection = dbuser.connect_to_db()
