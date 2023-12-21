@@ -1,5 +1,6 @@
 import urllib.request
 import os
+import traceback
 
 import mysql.connector
 from flask import Flask, request, jsonify
@@ -45,7 +46,7 @@ def accept_payment():
 				cursor.close()
 				connection.close()
 
-				client = boto3.client("sns",    aws_access_key_id=os.environ.get('aws_key'), aws_secret_access_key=os.environ.get('secret_key'))
+				client = boto3.client("sns", aws_access_key_id=os.environ.get('aws_key'), aws_secret_access_key=os.environ.get('secret_key'),region_name='us-east-1')
 				#TODO - move this to the aggregator service, it can fetch the user info to form the email
 				message = {'recipient':'kg2982@columbia.edu','subject':'Athos Payment Notification','body':f'Payment for Amount{amount} processed successfully' }
 				try:
@@ -61,10 +62,11 @@ def accept_payment():
 		else:
 			return jsonify({'message': 'Error processing payment. Invalid card'})
 	except:
+		traceback.print_exc()
 		return jsonify({'message': 'Unable to verify payment.'})
 
 
-@app.route('/api/payment/refund', methods=['POST'])
+@app.route('/api/payment/refund', methods=['PUT'])
 def refund_payment():
 	data = request.get_json()
 	order_id = data['order_id']
@@ -80,11 +82,26 @@ def refund_payment():
 		cursor.close()
 		connection.close()
 		return jsonify({'message': 'Error processing refund.'})
+@app.route('/api/payment/delete', methods=['DELETE'])
+def delete_payment():
+	data = request.get_json()
+	order_id = data['order_id']
+	connection = dbuser.connect_to_db()
+	cursor = connection.cursor()
+
+	try:
+		payment_query = f"update payments set refunded=1 where order_id='{order_id}' ;"
+		cursor.execute(payment_query)
+		connection.commit()
+		return jsonify({'message': 'Deleted'})
+	except:
+		cursor.close()
+		connection.close()
+		return jsonify({'message': 'Error deleting payment.'})
 
 
 
-
-@app.route('/api/payment/find', methods=['POST'])
+@app.route('/api/payment/find', methods=['GET'])
 def find_payment():
 	data = request.get_json()
 	order_id = data['order_id']
